@@ -1,28 +1,44 @@
 import { Signal } from "./signal"
 
-export interface Updater<T> {
+export type Updater<T>  = {
   collect(): T
   update(dep: T): void,
-  deps: Array<{
-    signal: Signal<T>,
-    undep(): void
-  }>,
-  // out
 }
 
-let tempUpdater: Updater<any> | null = null
+export type Tracer<T> = {
+  updater: Updater<T>,
+  undeps:
+    (()=> void)[]
+  current: T,
+  undepAll(): void,
+}
+
+let currentTracer: Tracer<any> | undefined = undefined
 
 export function registerUpdater<T>(updater: Updater<T>) {
-  tempUpdater = updater
-  const value = updater.collect()
-  tempUpdater = null
-  return {
+  const tracer: Tracer<T> = {
     updater,
-    value
+    undeps: [],
+    current: null as any,
+    undepAll() {
+      for (const undep of tracer.undeps) {
+        undep()
+      }
+      tracer.undeps = []
+    }
   }
+  tracer.current = wrapCollect(tracer)
+  return tracer
 }
 
-export function getTempUpdater() {
-  return tempUpdater
+export function getCurrentTracer() {
+  return currentTracer
 }
 
+
+export function wrapCollect<T>(tracer:Tracer<T>) {
+  currentTracer = tracer
+  const result = tracer.updater.collect()
+  currentTracer = undefined
+  return result
+}

@@ -1,6 +1,6 @@
 import { insertAfter, insertBefore, makeChainable, removeSelf, walk, walkOnSibling } from "./chain"
 import { Signal, useSignal } from "./signal"
-import { registerUpdater } from "./updater"
+import { registerUpdater, Updater } from "./updater"
 
 export type Child = string | number | null | undefined | Element
 
@@ -169,17 +169,12 @@ export function Text(props: Signaled<{
       dom: document.createTextNode(props.text)
     })
   }
-  const { updater, value } = registerUpdater({
+  const { current, undepAll } = registerUpdater({
     collect: props.text,
     update: (v) => tn.textContent = v,
-    deps: [],
   })
-  const tn = document.createTextNode(value)
-  hook('destroyed', () => {
-    for (const dep of updater.deps) {
-      dep.undep()
-    }
-  })
+  const tn = document.createTextNode(current)
+  hook('destroyed', undepAll)
   return createElement(_DOM, {
     dom: tn
   },)
@@ -191,7 +186,7 @@ export function Text(props: Signaled<{
  * @param key
  * @returns
  */
- function findDupKey(list: any[], key: string) {
+function findDupKey(list: any[], key: string) {
   const keys = new Set()
   for (const item of list) {
     const _key = String(item[key])
@@ -208,7 +203,7 @@ export function Text(props: Signaled<{
  * @param ele
  * @returns
  */
-function findParentWithDom(ele: Element): Element | undefined {
+function findDomParent(ele: Element): Element | undefined {
   while (ele) {
     if (ele.parent) {
       if (ele.parent.$dom || ele.parent.type === Forward) {
@@ -228,9 +223,9 @@ function findParentWithDom(ele: Element): Element | undefined {
  * @returns
  */
 function findSiblingDom(ele: Element) {
-  let parentWithDom = findParentWithDom(ele), sibling: Node | null = null
+  let domParent = findDomParent(ele), sibling: Node | null = null
   walk(ele, next => {
-    if (next === parentWithDom) return true
+    if (next === domParent) return true
     if (next.$dom && next.$parent === ele.$parent) {
       sibling = next.$dom
       return true
@@ -245,7 +240,7 @@ function findSiblingDom(ele: Element) {
  * @returns
  */
 function findSelfDom(ele: Element) {
-  const doms:Node[] = []
+  const doms: Node[] = []
   walk(ele, next => {
     if (next === ele.next || next === ele.parent) return true
     if (next.$dom && next.$parent === ele.$parent) {
@@ -268,7 +263,7 @@ export function Condition<T>(props: {
     return props.render(props.condition)
   }
   const ele = globalMountStack[globalMountStack.length - 1]
-  const { updater, value } = registerUpdater({
+  const { current, undepAll } = registerUpdater({
     collect: props.condition as () => T,
     update: (v) => {
       walkOnSibling(ele.child, child => {
@@ -281,14 +276,9 @@ export function Condition<T>(props: {
         renderDom(child, ele.$parent!, sibling)
       })
     },
-    deps: [],
   })
-  hook('destroyed', () => {
-    for (const dep of updater.deps) {
-      dep.undep()
-    }
-  })
-  return props.render(value)
+  hook('destroyed', undepAll)
+  return props.render(current)
 }
 
 type ForwardProps = {
@@ -306,27 +296,19 @@ export function Forward(props: ForwardProps) {
 }
 
 export function makeList<T>(
-  initialList: T[] | (() => T[]),
+  getter: T[] | (() => T[]),
   render: (signal: Signal<T>, getIndex: () => number) => Child,
   key?: string,
   equal?: (a: T, b: T) => boolean
 ) {
   type Result = [Signal<T>, Signal<number>, Element]
-  let list: T[] = []
-  if (typeof initialList == 'function') {
-    list = initialList()
-  } else {
-    list = initialList
-  }
   let map: { [p: string]: Result } = {}
-  let useKey = false
   const $start = document.createComment('@S'), $end = document.createComment('@E')
   let innerList: Element | null = null
 
-  function set(nl: T[] | ((old: T[]) => T[])) {
+  function set(list: T[]) {
     if (innerList) {
-      list = typeof nl === 'function' ? nl(list) : nl
-      updateUseKey()
+      const useKey = shouldUseKey(list)
       const { $parent } = innerList;
       let prev: Element | undefined = undefined
       for (const [i, v] of list.entries()) {
@@ -358,7 +340,7 @@ export function makeList<T>(
           }
           prev = ele
         } else {
-          const [,,ele] = renderToResult(v, i, _key)
+          const [, , ele] = renderToResult(v, i, _key)
           ele.parent = innerList
           if (!prev) {
             if (ele.parent.child) {
@@ -380,6 +362,11 @@ export function makeList<T>(
       walkOnSibling(prev?.next, child => {
         unmount(child)
       })
+      const children: Element[] = []
+      walkOnSibling(innerList.child, child => {
+        children.push(child)
+      })
+      innerList.children = children
     }
   }
 
@@ -394,31 +381,51 @@ export function makeList<T>(
     return result
   }
 
-  function updateUseKey() {
+  function shouldUseKey(list: T[]) {
     if (typeof key === 'string') {
       const dup = findDupKey(list, key)
       if (dup === undefined) {
-        useKey = true
+        return true
       } else {
         console.error(`Duplicate key: "${dup}"`)
       }
     }
+    return false
   }
 
   return {
     set,
-    List: function () {
+    List: function ListWrap () {
       return [
         createElement(_DOM, {
           dom: $start
         }),
         createElement(function List() {
+          let list: T[] = [], updater: Updater<T[]>
+          if (typeof getter == 'function') {
+            const { updater: _updater, value } = registerUpdater({
+              collect: getter,
+              update: (v) => {
+                set(v)
+              },
+              deps: [],
+            })
+            updater = _updater
+            list = value
+          } else {
+            list = getter
+          }
           hook('created', (ele) => {
             innerList = ele
           })
-          updateUseKey()
-          //@ts-ignore
-          let results = list.map((item, i) => renderToResult(item, i, useKey ? item[key] : i))
+          hook('destroyed', () => {
+            for (const dep of updater.deps) {
+              dep.undep()
+            }
+          })
+          const useKey = shouldUseKey(list),
+            //@ts-ignore
+            results = list.map((item, i) => renderToResult(item, i, useKey ? item[key] : i))
           return results.map(r => r[2])
         }),
         createElement(_DOM, {
@@ -451,12 +458,13 @@ function transformChild(child: Child): Element {
 export function renderDom(ele: Element, root: Node, sibling: Node | null = null) {
   const df = document.createDocumentFragment()
   mount(ele, df)
-  walk(ele, ele => {
-    if (ele.$dom && ele.$parent) {
-      ele.$parent.appendChild(ele.$dom)
+  walk(ele, next => {
+    if (next === ele.next || next === ele.parent) return true
+    if (next.$dom && next.$parent) {
+      next.$parent.appendChild(next.$dom)
     }
-    if (ele.$parent === df) {
-      ele.$parent = root
+    if (next.$parent === df) {
+      next.$parent = root
     }
   })
   root.insertBefore(df, sibling)

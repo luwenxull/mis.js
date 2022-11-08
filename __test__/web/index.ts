@@ -15,11 +15,9 @@ function A() {
     createElement('button', {
       on: {
         click() {
-          set(old => {
-            return [
-              { id: 5, name: 'e' }, { id: 1, name: 'aaa' }, { id: 6, name: 'f' }, { id: 2, name: 'b' }, { id: 4, name: 'd' }
-            ]
-          })
+          set([
+            { id: 5, name: 'e' }, { id: 1, name: 'aaa' }, { id: 6, name: 'f' }, { id: 2, name: 'b' }, { id: 4, name: 'd' }
+          ])
         }
       }
     }, '点我'),
@@ -45,7 +43,9 @@ function B() {
 }
 
 function C() {
-  return 'c'
+  const [getAge, setAge] = useSignal(18)
+
+  return createElement('div', {}, 'c')
 }
 
 function APP() {

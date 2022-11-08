@@ -49,8 +49,8 @@ declare type ForwardProps = {
     render: () => Child | Child[];
 };
 export declare function Forward(props: ForwardProps): Child | Child[];
-export declare function makeList<T>(initialList: T[] | (() => T[]), render: (signal: Signal<T>, getIndex: () => number) => Child, key?: string, equal?: (a: T, b: T) => boolean): {
-    set: (nl: T[] | ((old: T[]) => T[])) => void;
+export declare function makeList<T>(getter: T[] | (() => T[]), render: (signal: Signal<T>, getIndex: () => number) => Child, key?: string, equal?: (a: T, b: T) => boolean): {
+    set: (list: T[]) => void;
     List: () => (WidgetElement<{
         dom: Comment;
     }> | WidgetElement<undefined>)[];

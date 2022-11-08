@@ -26,20 +26,22 @@ export function makeChainable(node: Chainable & { children: Chainable[] }) {
  * @param fn
  */
 export function walk<T extends Chainable>(node: T | undefined, fn: (node: T) => boolean | void) {
-  let skipChildren = false
+  let direction = 1
   while (node) {
-    const stop = fn(node)
-    if (stop) {
-      break
+    if (direction === 1) {
+      const stop = fn(node)
+      if (stop) {
+        break
+      }
     }
-    if (node.child && !skipChildren) {
+    if (node.child && direction === 1) {
       node = node.child as T
     } else if (node.next) {
       node = node.next as T
-      skipChildren = false
+      direction = 1
     } else if (node.parent) {
       node = node.parent as T
-      skipChildren = true
+      direction = -1
     } else {
       break
     }

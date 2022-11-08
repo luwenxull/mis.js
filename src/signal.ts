@@ -1,24 +1,16 @@
-import { getTempUpdater, registerUpdater, Updater } from "./updater"
+import { getCurrentTracer, registerUpdater, Tracer, wrapCollect } from "./updater"
 
 export type Signal<T> = [() => T, (value: ((old: T) => T) | T) => void]
 
-function simpleCompare(a: any, b: any) {
-  return a === b
-}
 
-export function useSignal<T>(initial: T, equal = simpleCompare): Signal<T> {
+export function useSignal<T>(initial: T): Signal<T> {
   let value = initial
-  const updaters: Set<Updater<T>> = new Set()
+  const tracers: Set<Tracer<T>> = new Set()
   const signal: Signal<T> = [() => {
-    const updater = getTempUpdater()
-    if (updater) {
-      updaters.add(updater)
-      updater.deps.push({
-        signal,
-        undep: () => {
-          updaters.delete(updater)
-        }
-      })
+    const tracer = getCurrentTracer()
+    if (tracer) {
+      tracers.add(tracer)
+      tracer.undeps.push(() => tracers.delete(tracer))
     }
     return value
   },
@@ -26,17 +18,15 @@ export function useSignal<T>(initial: T, equal = simpleCompare): Signal<T> {
     if (typeof setter === 'function') {
       setter = (setter as Function)(value)
     }
-    if (equal(value, setter)) {
-      return
-    }
     value = setter as T
-    if (updaters.size > 0) {
-      for (const updater of Array.from(updaters)) {
-        for (const dep of updater.deps) {
-          dep.undep()
+    if (tracers.size > 0) {
+      for (const tracer of Array.from(tracers)) {
+        tracer.undepAll()
+        const nv = wrapCollect(tracer)
+        if (tracer.current !== nv) {
+          tracer.current = nv
+          tracer.updater.update(tracer.current)
         }
-        updater.deps = []
-        updater.update(registerUpdater(updater).value)
       }
     }
   }]

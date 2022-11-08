@@ -1,14 +1,13 @@
-import { Signal } from "./signal";
-export interface Updater<T> {
+export declare type Updater<T> = {
     collect(): T;
     update(dep: T): void;
-    deps: Array<{
-        signal: Signal<T>;
-        undep(): void;
-    }>;
-}
-export declare function registerUpdater<T>(updater: Updater<T>): {
-    updater: Updater<T>;
-    value: T;
 };
-export declare function getTempUpdater(): Updater<any> | null;
+export declare type Tracer<T> = {
+    updater: Updater<T>;
+    undeps: (() => void)[];
+    current: T;
+    undepAll(): void;
+};
+export declare function registerUpdater<T>(updater: Updater<T>): Tracer<T>;
+export declare function getCurrentTracer(): Tracer<any> | undefined;
+export declare function wrapCollect<T>(tracer: Tracer<T>): T;
