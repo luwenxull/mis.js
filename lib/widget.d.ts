@@ -6,6 +6,7 @@ export declare type DOMProps = {
     };
 };
 declare type BaseElement = {
+    id: number;
     next?: Element;
     prev?: Element;
     child?: Element;
@@ -49,8 +50,8 @@ declare type ForwardProps = {
     render: () => Child | Child[];
 };
 export declare function Forward(props: ForwardProps): Child | Child[];
-export declare function makeList<T>(getter: T[] | (() => T[]), render: (signal: Signal<T>, getIndex: () => number) => Child, key?: string, equal?: (a: T, b: T) => boolean): {
-    set: (list: T[]) => void;
+export declare function makeList<T>(collect: T[] | (() => T[]), render: (signal: Signal<T>, getIndex: () => number) => Child, key?: string, equal?: (a: T, b: T) => boolean): {
+    update: (list: T[]) => void;
     List: () => (WidgetElement<{
         dom: Comment;
     }> | WidgetElement<undefined>)[];

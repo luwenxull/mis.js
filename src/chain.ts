@@ -3,6 +3,7 @@ export type Chainable = {
   child?: Chainable
   next?: Chainable
   prev?: Chainable
+  id: number
 }
 
 export function makeChainable(node: Chainable & { children: Chainable[] }) {
@@ -26,22 +27,22 @@ export function makeChainable(node: Chainable & { children: Chainable[] }) {
  * @param fn
  */
 export function walk<T extends Chainable>(node: T | undefined, fn: (node: T) => boolean | void) {
-  let direction = 1
+  let walked = new Set<number>()
   while (node) {
-    if (direction === 1) {
+    const _walked = walked.has(node.id)
+    if (!_walked) {
+      walked.add(node.id)
       const stop = fn(node)
       if (stop) {
         break
       }
     }
-    if (node.child && direction === 1) {
+    if (node.child && !_walked) {
       node = node.child as T
     } else if (node.next) {
       node = node.next as T
-      direction = 1
     } else if (node.parent) {
       node = node.parent as T
-      direction = -1
     } else {
       break
     }
@@ -54,7 +55,7 @@ export function walk<T extends Chainable>(node: T | undefined, fn: (node: T) => 
  * @param fn
  */
 export function walkOnSibling<T extends Chainable>(node: T | undefined, fn: (node: T) => boolean | void) {
-  while(node) {
+  while (node) {
     fn(node)
     node = node.next as T
   }

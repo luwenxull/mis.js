@@ -3,6 +3,7 @@ export declare type Chainable = {
     child?: Chainable;
     next?: Chainable;
     prev?: Chainable;
+    id: number;
 };
 export declare function makeChainable(node: Chainable & {
     children: Chainable[];

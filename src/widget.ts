@@ -12,6 +12,7 @@ export type DOMProps = {
 }
 
 type BaseElement = {
+  id: number
   next?: Element //
   prev?: Element //
   child?: Element
@@ -96,9 +97,7 @@ function unmount(ele: Element, prtDomRemoved: boolean = false) {
 export function mount(element: Element, $parent: Node) {
   element.status = STATUS_MOUNTED // 标记mount状态
   element.$parent = $parent
-  // chain(element, $parent as VNode)
   if (isDomElement(element)) {
-    // const dom =
     element.$dom = document.createElement(element.type)
     element.children = element.children.map(transformChild)
     makeChainable(element)
@@ -203,30 +202,38 @@ function findDupKey(list: any[], key: string) {
  * @param ele
  * @returns
  */
-function findDomParent(ele: Element): Element | undefined {
+function findDomParent(ele: Element, $parent: Node): Element {
   while (ele) {
+    if (ele.$dom === $parent) return ele
+    if (ele.type === Forward) return ele
+    // ele = ele.parent
     if (ele.parent) {
-      if (ele.parent.$dom || ele.parent.type === Forward) {
-        return ele.parent
-      } else {
-        ele = ele.parent
-      }
+      ele = ele.parent
     } else {
-      return ele
+      // return ele
+      break
     }
   }
+  return ele
 }
 
+
 /**
- * 寻找后续的第一个Dom（包括自身的Dom和parent dom）
+ * 寻找包含自身的第一个dom节点
  * @param ele
+ * @param stopAt 终止查找
+ * @param $parent
  * @returns
  */
-function findSiblingDom(ele: Element) {
-  let domParent = findDomParent(ele), sibling: Node | null = null
+function findFirstDom(
+  ele: Element | undefined,
+  stopAt: Element,
+  $parent: Node,
+): Node | null {
+  let sibling: Node | null = null
   walk(ele, next => {
-    if (next === domParent) return true
-    if (next.$dom && next.$parent === ele.$parent) {
+    if (next === stopAt) return true
+    if (next.$dom && next.$parent === $parent) {
       sibling = next.$dom
       return true
     }
@@ -242,6 +249,7 @@ function findSiblingDom(ele: Element) {
 function findSelfDom(ele: Element) {
   const doms: Node[] = []
   walk(ele, next => {
+    // 防止越界
     if (next === ele.next || next === ele.parent) return true
     if (next.$dom && next.$parent === ele.$parent) {
       doms.push(next.$dom)
@@ -266,14 +274,17 @@ export function Condition<T>(props: {
   const { current, undepAll } = registerUpdater({
     collect: props.condition as () => T,
     update: (v) => {
+      const { $parent } = ele
+      if (!$parent) return
       walkOnSibling(ele.child, child => {
         unmount(child)
       })
-      const sibling = findSiblingDom(ele)
+      debugger
+      const sibling = findFirstDom(ele.next, findDomParent(ele, $parent), $parent)
       ele.children = ([] as Child[]).concat(props.render(v)).map(transformChild)
       makeChainable(ele)
       walkOnSibling(ele.child, child => {
-        renderDom(child, ele.$parent!, sibling)
+        renderDom(child, $parent, sibling)
       })
     },
   })
@@ -296,7 +307,7 @@ export function Forward(props: ForwardProps) {
 }
 
 export function makeList<T>(
-  getter: T[] | (() => T[]),
+  collect: T[] | (() => T[]),
   render: (signal: Signal<T>, getIndex: () => number) => Child,
   key?: string,
   equal?: (a: T, b: T) => boolean
@@ -306,8 +317,8 @@ export function makeList<T>(
   const $start = document.createComment('@S'), $end = document.createComment('@E')
   let innerList: Element | null = null
 
-  function set(list: T[]) {
-    if (innerList) {
+  function update(list: T[]) {
+    if (innerList && innerList.$parent) {
       const useKey = shouldUseKey(list)
       const { $parent } = innerList;
       let prev: Element | undefined = undefined
@@ -323,18 +334,20 @@ export function makeList<T>(
               removeSelf(ele)
               const f = ele.parent!.child!
               insertBefore(ele, f)
-              const sibling = findSiblingDom(f)
+              const sibling = findFirstDom(f, findDomParent(ele, $parent), $parent)
               for (const dom of findSelfDom(ele)) {
                 $parent!.insertBefore(dom, sibling)
               }
             }
           } else {
             if (prev.next !== ele) {
-              const sibling = prev.next ? findSiblingDom(prev.next) : $end
+              const sibling = prev.next
+                ? findFirstDom(prev.next, findDomParent(ele, $parent), $parent)
+                : $end
               removeSelf(ele)
               insertAfter(ele, prev)
               for (const dom of findSelfDom(ele)) {
-                $parent!.insertBefore(dom, sibling)
+                $parent.insertBefore(dom, sibling)
               }
             }
           }
@@ -344,15 +357,15 @@ export function makeList<T>(
           ele.parent = innerList
           if (!prev) {
             if (ele.parent.child) {
-              const sibling = findSiblingDom(ele.parent.child)
+              const sibling = findFirstDom(ele.parent.child, findDomParent(ele, $parent), $parent)
               insertBefore(ele, ele.parent.child)
-              renderDom(ele, $parent!, sibling)
+              renderDom(ele, $parent, sibling)
             } else {
               ele.parent.child = ele
-              renderDom(ele, $parent!, $end)
+              renderDom(ele, $parent, $end)
             }
           } else {
-            const sibling = prev.next ? findSiblingDom(prev.next) : $end
+            const sibling = prev.next ? findFirstDom(prev.next, findDomParent(ele, $parent), $parent) : $end
             insertAfter(ele, prev)
             renderDom(ele, $parent!, sibling)
           }
@@ -371,7 +384,7 @@ export function makeList<T>(
   }
 
   function renderToResult(item: T, index: number, key: string | number) {
-    const itemSig = useSignal(item, equal),
+    const itemSig = useSignal(item),
       indexSig = useSignal(index),
       ele = transformChild(render(itemSig, indexSig[0]))
     const result: Result = [itemSig, indexSig, ele]
@@ -394,33 +407,30 @@ export function makeList<T>(
   }
 
   return {
-    set,
-    List: function ListWrap () {
+    update,
+    List: function ListWrapper() {
       return [
         createElement(_DOM, {
           dom: $start
         }),
         createElement(function List() {
-          let list: T[] = [], updater: Updater<T[]>
-          if (typeof getter == 'function') {
-            const { updater: _updater, value } = registerUpdater({
-              collect: getter,
-              update: (v) => {
-                set(v)
-              },
-              deps: [],
+          let list: T[] = [], undepAll: () => void
+          if (typeof collect == 'function') {
+            const { undepAll: _undepAll, current } = registerUpdater({
+              collect,
+              update,
             })
-            updater = _updater
-            list = value
+            undepAll = _undepAll
+            list = current
           } else {
-            list = getter
+            list = collect
           }
           hook('created', (ele) => {
             innerList = ele
           })
           hook('destroyed', () => {
-            for (const dep of updater.deps) {
-              dep.undep()
+            if (typeof undepAll === 'function') {
+              undepAll()
             }
           })
           const useKey = shouldUseKey(list),
@@ -470,6 +480,8 @@ export function renderDom(ele: Element, root: Node, sibling: Node | null = null)
   root.insertBefore(df, sibling)
 }
 
+let ID = 0
+
 /**
  * 创建内部Element
  * @param config
@@ -484,6 +496,7 @@ export function createElement<P>(type: string | Widget<P>, props?: DOMProps | P,
     props,
     hooks: {},
     status: STATUS_CRAETED,
+    id: ID++
   } as Element<P>
 }
 
