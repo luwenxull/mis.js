@@ -6,19 +6,18 @@ export type Chainable = {
   id: number
 }
 
-export function makeChainable(node: Chainable & { children: Chainable[] }) {
-  if (node.children.length) {
-    for (const [k, v] of node.children.entries()) {
-      v.parent = node
+export function makeChainable(nodes: Chainable[], parent: Chainable) {
+    for (const [k, v] of nodes.entries()) {
+      v.parent = parent
       if (k === 0) {
-        node.child = v
+        parent.child = v
       }
       if (k > 0) {
-        node.children[k - 1].next = v
-        v.prev = node.children[k - 1]
+        nodes[k - 1].next = v
+        v.prev = nodes[k - 1]
       }
     }
-  }
+
 }
 
 /**
@@ -66,10 +65,8 @@ export function walkOnSibling<T extends Chainable>(node: T | undefined, fn: (nod
  * @param node
  */
 export function removeSelf(node: Chainable) {
-  if (node.parent) {
-    if (node.parent.child === node) {
-      node.parent.child = node.next
-    }
+  if (node.parent && node.parent.child === node) {
+    node.parent.child = node.next
   }
   if (node.prev) {
     node.prev.next = node.next

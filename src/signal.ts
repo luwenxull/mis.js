@@ -40,10 +40,7 @@ export function useSignal<T>(initial: T): Signal<T> {
     return value
   },
   (setter) => {
-    if (typeof setter === 'function') {
-      setter = (setter as Function)(value)
-    }
-    value = setter as T
+    value = typeof setter === "function" ? (setter as (old: T) => T)(value) : setter
     if (tracers.size > 0) {
       markNeedUpdate(tracers)
     }

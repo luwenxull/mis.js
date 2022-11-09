@@ -1,14 +1,22 @@
 import { insertAfter, insertBefore, makeChainable, removeSelf, walk, walkOnSibling } from "./chain"
 import { Signal, useSignal } from "./signal"
-import { registerUpdater, Updater } from "./updater"
+import { registerUpdater } from "./updater"
 
 export type Child = string | number | null | undefined | Element
+
+type Obj = {
+  [key: string]: any
+}
 
 export type DOMProps = {
   // [p: string]: any
   on?: {
     [p: string]: (e: Event) => void
-  }
+  },
+  attr?: {
+    [p: string]: any
+  },
+  style?: Obj | (() => Obj),
 }
 
 type BaseElement = {
@@ -17,7 +25,7 @@ type BaseElement = {
   prev?: Element //
   child?: Element
   parent?: Element // 父节点
-  children: Element[] // 子节点
+  children: Child[] // 子节点
   status: 0 | 1 | 2
   $dom?: Node // 节点对应的dom
   $parent?: Node, // 节点对应的父dom
@@ -45,7 +53,7 @@ export type Signaled<T> = {
 
 export type Widget<P = {}> = (p: P) => Child | Child[]
 
-const globalMountStack: WidgetElement<unknown>[] = []
+const globalMountStack: Element[] = []
 
 const STATUS_CRAETED = 0
 const STATUS_MOUNTED = 1
@@ -67,26 +75,25 @@ function isDomElement(element: Element): element is DOMElement {
  * @param ele
  * @param prtDomRemoved
  */
-function unmount(ele: Element, prtDomRemoved: boolean = false) {
-  if (ele.$parent) {
-    removeSelf(ele)
-    if (ele.$dom) {
-      if (!prtDomRemoved) {
-        ele.$parent.removeChild(ele.$dom)
+function unmount(ele: Element) {
+  const removed: Set<Node> = new Set()
+  walk(ele, next => {
+    if (next === ele.next || next === ele.parent) return true
+    if (next.status !== STATUS_UNMOUNTED) {
+      next.status = STATUS_UNMOUNTED
+      if (next.hooks.destroyed) {
+        next.hooks.destroyed(next)
       }
-      prtDomRemoved = true
+      if (next.$dom && next.$parent) {
+        if (!removed.has(next.$parent)) {
+          next.$parent.removeChild(next.$dom)
+        }
+        removed.add(next.$dom)
+        next.$dom = undefined
+        next.$parent = undefined
+      }
     }
-    ele.status = STATUS_UNMOUNTED
-    if (ele.hooks.destroyed) {
-      ele.hooks.destroyed(ele)
-    }
-    if (ele.type === Forward) {
-      prtDomRemoved = false
-    }
-    walkOnSibling(ele.child, (child) => {
-      unmount(child, prtDomRemoved)
-    })
-  }
+  })
 }
 
 /**
@@ -95,31 +102,41 @@ function unmount(ele: Element, prtDomRemoved: boolean = false) {
  * @param $parent
  */
 export function mount(element: Element, $parent: Node) {
+  globalMountStack.push(element)
   element.status = STATUS_MOUNTED // 标记mount状态
   element.$parent = $parent
   if (isDomElement(element)) {
-    element.$dom = document.createElement(element.type)
-    element.children = element.children.map(transformChild)
-    makeChainable(element)
+    const $dom = document.createElement(element.type)
+    element.$dom = $dom
+    makeChainable(element.children.map(transformChild), element)
     walkOnSibling(element.child, (child) => {
-      mount(child, element.$dom as Node)
+      mount(child, $dom)
     })
     if (element.props) {
-      for (const key of Object.keys(element.props)) {
-        if (key === 'on') {
-          const on = element.props[key] as { [p: string]: (e: Event) => void }
-          for (const key of Object.keys(on)) {
-            element.$dom.addEventListener(key, on[key])
-          }
+      if (element.props.style) {
+        const { style } = element.props
+        if (typeof style === 'function') {
+          const { current, undepAll } = registerUpdater({
+            collect: style as () => Obj,
+            update: (value) => {
+              Object.assign($dom.style, value)
+            }
+          })
+          Object.assign($dom.style, current)
+          hook('destroyed', undepAll)
+        } else {
+          Object.assign($dom.style, style)
+        }
+      }
+      if (element.props.on) {
+        const on = element.props.on
+        for (const key of Object.keys(on)) {
+          $dom.addEventListener(key, on[key])
         }
       }
     }
-    if (element.hooks.created) {
-      element.hooks.created(element)
-    }
   } else {
     // 全局加载列表
-    globalMountStack.push(element)
     // 特殊处理的_DOM节点
     if (element.type === _DOM) {
       const { props: { dom } } = element as WidgetElement<_DOMProps>
@@ -128,8 +145,7 @@ export function mount(element: Element, $parent: Node) {
         element.$dom = dom
       }
     } else {
-      element.children = ([] as Child[]).concat(element.type(element.props)).map(transformChild)
-      makeChainable(element)
+      makeChainable(([] as Child[]).concat(element.type(element.props)).map(transformChild), element)
       if (element.type === Forward) {
         $parent = element.props.parent
       }
@@ -137,11 +153,12 @@ export function mount(element: Element, $parent: Node) {
         mount(child, $parent)
       })
     }
-    globalMountStack.pop()
     if (element.hooks.created) {
       element.hooks.created(element)
     }
   }
+  globalMountStack.pop()
+
 }
 
 type _DOMProps = {
@@ -279,10 +296,8 @@ export function Condition<T>(props: {
       walkOnSibling(ele.child, child => {
         unmount(child)
       })
-      debugger
       const sibling = findFirstDom(ele.next, findDomParent(ele, $parent), $parent)
-      ele.children = ([] as Child[]).concat(props.render(v)).map(transformChild)
-      makeChainable(ele)
+      makeChainable(([] as Child[]).concat(props.render(v)).map(transformChild), ele)
       walkOnSibling(ele.child, child => {
         renderDom(child, $parent, sibling)
       })
@@ -492,7 +507,7 @@ export function createElement<P>(type: Widget<P>, props: P, ...children: Child[]
 export function createElement<P>(type: string | Widget<P>, props?: DOMProps | P, ...children: Child[]): Element<P> {
   return {
     type,
-    children: children as any,
+    children,
     props,
     hooks: {},
     status: STATUS_CRAETED,

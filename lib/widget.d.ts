@@ -1,9 +1,16 @@
 import { Signal } from "./signal";
 export declare type Child = string | number | null | undefined | Element;
+declare type Obj = {
+    [key: string]: any;
+};
 export declare type DOMProps = {
     on?: {
         [p: string]: (e: Event) => void;
     };
+    attr?: {
+        [p: string]: any;
+    };
+    style?: Obj | (() => Obj);
 };
 declare type BaseElement = {
     id: number;
@@ -11,7 +18,7 @@ declare type BaseElement = {
     prev?: Element;
     child?: Element;
     parent?: Element;
-    children: Element[];
+    children: Child[];
     status: 0 | 1 | 2;
     $dom?: Node;
     $parent?: Node;

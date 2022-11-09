@@ -27,7 +27,7 @@ function A() {
     //   parent: document.getElementById('forward') as Node,
     //   render: () => '我是装载到外部DOM的节点'
     // }),
-    // createElement(C),
+    createElement(C),
   ]
 }
 
@@ -43,7 +43,7 @@ function B() {
     }, '测试Condition'),
     createElement(Condition, {
       condition: getter,
-      render: v => v ? 'yes' : null
+      render: v => v ? 'yes' : createElement('p', {}, createElement('span', {}, 'no'))
     }),
     createElement(Forward, {
       parent: document.getElementById('forward') as Node,
@@ -58,18 +58,40 @@ function B() {
 
 function C() {
   const [getAge, setAge] = useSignal(18)
-  const [getName, setName] = useSignal('张三')
+  // const [getName, setName] = useSignal('张三')
   return createElement('section', {},
     createElement('button', {
       on: {
         click() {
           setAge(age => age + 1)
-          setName('李四')
+          // setName('李四')
         }
       }
-    }, '点我'),
+    }, '+1'),
+    createElement('button', {
+      on: {
+        click() {
+          setAge(age => age - 1)
+        }
+      }
+    }, '-1'),
     createElement(Text, {
-      text: () => { console.log('??'); return `姓名：${getName()}，年龄：${getAge()}` }
+      text: () => `年龄：${getAge()}`
+    }),
+    createElement('input', {
+      // attr: {
+      //   value: '2'
+      // }
+      style: () => {
+        if (getAge() > 18) {
+          return {
+            color: 'red'
+          }
+        }
+        return {
+          color: 'green'
+        }
+      }
     })
   )
 }
